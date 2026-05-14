@@ -31,12 +31,6 @@
         align-items: center;
         justify-content: space-between;
       }
-      .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: end;
-      }
       .control {
         display: flex;
         flex-direction: column;
@@ -144,24 +138,14 @@
     <div class="card">
       <div class="row">
         <h1>Getijden per dag</h1>
-        <div class="controls">
-          <label class="control">
-            Datum
-            <select id="dateSelect">
-              {% for day in date_options %}
-              <option value="{{ day }}" {% if day == selected_date %}selected{% endif %}>{{ day }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label class="control">
-            Zoek locatie
-            <input id="locationSearch" type="search" placeholder="bijv. dordrecht" />
-          </label>
-          <label class="control">
-            Locatie
-            <select id="locationSelect"></select>
-          </label>
-        </div>
+        <label class="control">
+          Datum
+          <select id="dateSelect">
+            {% for day in date_options %}
+            <option value="{{ day.value }}" {% if day.value == selected_date %}selected{% endif %}>{{ day.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
 
       <div class="meta">
@@ -193,15 +177,12 @@
 
       <div class="footer">
         Bron: <a href="{{ waterdata_info_url }}" target="_blank" rel="noopener noreferrer">rijkswaterstaatdata.nl/waterdata</a>
-        en <a href="{{ swagger_url }}" target="_blank" rel="noopener noreferrer">WaterWebservices Swagger</a>
       </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script>
       const dateSelect = document.getElementById('dateSelect');
-      const locationSearch = document.getElementById('locationSearch');
-      const locationSelect = document.getElementById('locationSelect');
       const highList = document.getElementById('highList');
       const lowList = document.getElementById('lowList');
       const noticeNode = document.getElementById('notice');
@@ -215,80 +196,19 @@
       const initialLocation = {{ selected_location|tojson }};
 
       let chart;
-      let searchTimer;
       let tideLoading = false;
-      let locationLoading = false;
 
       function updateLoadingState() {
-        const messages = [];
-        if (tideLoading) {
-          messages.push('Getijdedata laden…');
-        }
-        if (locationLoading) {
-          messages.push('Locaties laden…');
-        }
-
-        const isLoading = messages.length > 0;
+        const isLoading = tideLoading;
         loadingIndicator.classList.toggle('is-visible', isLoading);
-        loadingText.textContent = messages.join(' ') || 'Gereed';
+        loadingText.textContent = isLoading ? 'Getijdedata laden…' : 'Gereed';
 
         dateSelect.disabled = tideLoading;
-        locationSelect.disabled = tideLoading || locationLoading;
-        locationSearch.disabled = locationLoading;
       }
 
       function setTideLoading(isLoading) {
         tideLoading = isLoading;
         updateLoadingState();
-      }
-
-      function setLocationLoading(isLoading) {
-        locationLoading = isLoading;
-        updateLoadingState();
-      }
-
-      function setLocationOptions(items, selectedCode) {
-        locationSelect.innerHTML = '';
-        if (!items.length) {
-          const option = document.createElement('option');
-          option.value = selectedCode;
-          option.textContent = selectedCode;
-          locationSelect.appendChild(option);
-          return;
-        }
-
-        items.forEach((item) => {
-          const option = document.createElement('option');
-          option.value = item.code;
-          option.textContent = item.name ? `${item.name} (${item.code})` : item.code;
-          if (item.code === selectedCode) {
-            option.selected = true;
-          }
-          locationSelect.appendChild(option);
-        });
-
-        if (![...locationSelect.options].some((option) => option.value === selectedCode)) {
-          const option = document.createElement('option');
-          option.value = selectedCode;
-          option.textContent = selectedCode;
-          option.selected = true;
-          locationSelect.prepend(option);
-        }
-      }
-
-      async function loadLocations(query, selectedCode) {
-        setLocationLoading(true);
-        try {
-          const encodedQuery = encodeURIComponent(query || '');
-          const response = await fetch(`/api/locations?q=${encodedQuery}&limit=60`);
-          if (!response.ok) {
-            throw new Error(`Locatie API fout (${response.status})`);
-          }
-          const payload = await response.json();
-          setLocationOptions(payload.items || [], selectedCode);
-        } finally {
-          setLocationLoading(false);
-        }
       }
 
       function renderList(node, rows, label) {
@@ -401,29 +321,12 @@
       }
 
       dateSelect.addEventListener('change', (event) => {
-        loadDay(event.target.value, locationSelect.value);
-      });
-
-      locationSelect.addEventListener('change', (event) => {
-        loadDay(dateSelect.value, event.target.value);
-      });
-
-      locationSearch.addEventListener('input', () => {
-        window.clearTimeout(searchTimer);
-        searchTimer = window.setTimeout(async () => {
-          try {
-            await loadLocations(locationSearch.value, locationSelect.value || initialLocation);
-          } catch (err) {
-            errorNode.textContent = err.message || 'Locaties laden mislukt';
-          }
-        }, 250);
+        loadDay(event.target.value, initialLocation);
       });
 
       (async function init() {
         try {
-          await loadLocations('', initialLocation);
-          locationSearch.value = '';
-          await loadDay(dateSelect.value, locationSelect.value || initialLocation);
+          await loadDay(dateSelect.value, initialLocation);
         } catch (err) {
           errorNode.textContent = err.message || 'Initialisatie mislukt';
         }

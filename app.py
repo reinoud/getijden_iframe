@@ -16,6 +16,31 @@ DEFAULT_LOCATION_CODE = os.getenv("RWS_LOCATION_CODE", "dordrecht.oudemaas.bened
 TIMEZONE = ZoneInfo("Europe/Amsterdam")
 LOCATION_CACHE_TTL = timedelta(hours=6)
 
+DUTCH_WEEKDAYS = [
+    "maandag",
+    "dinsdag",
+    "woensdag",
+    "donderdag",
+    "vrijdag",
+    "zaterdag",
+    "zondag",
+]
+
+DUTCH_MONTHS = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+]
+
 
 @dataclass(frozen=True)
 class TidePoint:
@@ -151,6 +176,23 @@ def _date_options(anchor: date, span_days: int = 7) -> List[str]:
     return [(anchor + timedelta(days=delta)).isoformat() for delta in range(-span_days, span_days + 1)]
 
 
+def _format_date_label_nl(day: date) -> str:
+    weekday = DUTCH_WEEKDAYS[day.weekday()]
+    month = DUTCH_MONTHS[day.month - 1]
+    return f"{day.day} {month} {day.year} ({weekday})"
+
+
+def _date_options_with_labels(anchor: date, span_days: int = 7) -> List[Dict[str, str]]:
+    options: List[Dict[str, str]] = []
+    for delta in range(-span_days, span_days + 1):
+        current_day = anchor + timedelta(days=delta)
+        label = _format_date_label_nl(current_day)
+        if current_day == anchor:
+            label = f"{label} - vandaag"
+        options.append({"value": current_day.isoformat(), "label": label})
+    return options
+
+
 def _has_displayable_height_data(points: List[TidePoint]) -> bool:
     return any(point.source in {"verwachting", "meting"} for point in points)
 
@@ -250,7 +292,7 @@ def index():
     return render_template(
         "index.html",
         selected_date=selected_day.isoformat(),
-        date_options=_date_options(datetime.now(TIMEZONE).date()),
+        date_options=_date_options_with_labels(datetime.now(TIMEZONE).date()),
         default_location=DEFAULT_LOCATION_CODE,
         selected_location=selected_location,
         waterdata_info_url=WATERDATA_INFO_URL,
