@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Getijden</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #f8f9fb;
+        color: #1f2937;
+      }
+      .card {
+        max-width: 900px;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 14px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      select {
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        min-width: 180px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.2rem;
+      }
+      .meta {
+        margin-top: 8px;
+        font-size: 0.9rem;
+        color: #4b5563;
+      }
+      .lists {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+        margin: 14px 0;
+      }
+      .listbox {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f9fafb;
+      }
+      .listbox h2 {
+        margin: 0 0 6px 0;
+        font-size: 1rem;
+      }
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      canvas {
+        width: 100%;
+        max-height: 320px;
+      }
+      .footer {
+        margin-top: 10px;
+        font-size: 0.8rem;
+        color: #6b7280;
+      }
+      .error {
+        margin-top: 10px;
+        color: #b91c1c;
+        min-height: 1.2em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="row">
+        <h1>Getijden per dag</h1>
+        <label>
+          Datum:
+          <select id="dateSelect">
+            {% for day in date_options %}
+            <option value="{{ day }}" {% if day == selected_date %}selected{% endif %}>{{ day }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <div class="meta">
+        Locatiecode: <strong id="locationCode">{{ default_location }}</strong>
+      </div>
+
+      <div class="lists">
+        <section class="listbox">
+          <h2>Hoogwater</h2>
+          <ul id="highList"></ul>
+        </section>
+        <section class="listbox">
+          <h2>Laagwater</h2>
+          <ul id="lowList"></ul>
+        </section>
+      </div>
+
+      <canvas id="tideChart" aria-label="Grafiek waterstanden" role="img"></canvas>
+      <div class="error" id="error"></div>
+
+      <div class="footer">
+        Bron: <a href="{{ waterdata_info_url }}" target="_blank" rel="noopener noreferrer">rijkswaterstaatdata.nl/waterdata</a>
+        en <a href="{{ swagger_url }}" target="_blank" rel="noopener noreferrer">WaterWebservices Swagger</a>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script>
+      const dateSelect = document.getElementById('dateSelect');
+      const highList = document.getElementById('highList');
+      const lowList = document.getElementById('lowList');
+      const errorNode = document.getElementById('error');
+      const locationCode = document.getElementById('locationCode');
+      const chartCtx = document.getElementById('tideChart').getContext('2d');
+
+      let chart;
+
+      function renderList(node, rows, label) {
+        node.innerHTML = '';
+        if (!rows.length) {
+          node.innerHTML = `<li>Geen ${label} gevonden</li>`;
+          return;
+        }
+        rows.forEach((item) => {
+          const li = document.createElement('li');
+          li.textContent = `${item.time} - ${item.value_cm.toFixed(1)} cm`;
+          node.appendChild(li);
+        });
+      }
+
+      function renderChart(points, selectedDate) {
+        const labels = points.map((p) => p.time);
+        const values = points.map((p) => p.value_cm);
+
+        if (chart) {
+          chart.destroy();
+        }
+
+        chart = new Chart(chartCtx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: `Waterhoogte ${selectedDate} (cm t.o.v. NAP)`,
+                data: values,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.12)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.2,
+                pointRadius: 0,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                ticks: { maxTicksLimit: 12 },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: 'cm t.o.v. NAP',
+                },
+              },
+            },
+            plugins: {
+              legend: { display: true },
+            },
+          },
+        });
+      }
+
+      async function loadDay(selectedDate) {
+        errorNode.textContent = '';
+        try {
+          const response = await fetch(`/api/tides?date=${encodeURIComponent(selectedDate)}`);
+          if (!response.ok) {
+            throw new Error(`API fout (${response.status})`);
+          }
+
+          const payload = await response.json();
+          if (payload.error) {
+            throw new Error(payload.error);
+          }
+
+          locationCode.textContent = payload.location;
+          renderList(highList, payload.high_waters || [], 'hoogwater');
+          renderList(lowList, payload.low_waters || [], 'laagwater');
+          renderChart(payload.points || [], selectedDate);
+
+          const url = new URL(window.location.href);
+          url.searchParams.set('date', selectedDate);
+          window.history.replaceState({}, '', url.toString());
+        } catch (err) {
+          errorNode.textContent = err.message || 'Onbekende fout';
+          renderList(highList, [], 'hoogwater');
+          renderList(lowList, [], 'laagwater');
+          renderChart([], selectedDate);
+        }
+      }
+
+      dateSelect.addEventListener('change', (event) => {
+        loadDay(event.target.value);
+      });
+
+      loadDay(dateSelect.value);
+    </script>
+  </body>
+</html>
+
