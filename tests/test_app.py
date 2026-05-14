@@ -26,6 +26,18 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(len(highs), 2)
         self.assertEqual(len(lows), 2)
 
+    def test_date_options_cover_one_month_back_and_six_months_forward(self):
+        anchor = date(2026, 5, 14)
+        options = app._date_options_with_labels(anchor)
+
+        self.assertEqual(options[0]["value"], "2026-04-14")
+        self.assertEqual(options[-1]["value"], "2026-11-14")
+        self.assertEqual(len(options), (date(2026, 11, 14) - date(2026, 4, 14)).days + 1)
+
+        today_rows = [row for row in options if row["value"] == "2026-05-14"]
+        self.assertEqual(len(today_rows), 1)
+        self.assertIn("vandaag", today_rows[0]["label"])
+
     @patch("app._find_high_low")
     @patch("app._merge_points")
     def test_api_tides_returns_json(self, merge_mock, highlow_mock):

@@ -1,3 +1,4 @@
+import calendar
 import json
 import os
 from dataclasses import dataclass
@@ -182,10 +183,21 @@ def _format_date_label_nl(day: date) -> str:
     return f"{day.day} {month} {day.year} ({weekday})"
 
 
-def _date_options_with_labels(anchor: date, span_days: int = 7) -> List[Dict[str, str]]:
+def _add_months(day: date, months: int) -> date:
+    month_index = day.month - 1 + months
+    year = day.year + month_index // 12
+    month = month_index % 12 + 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day.day, last_day))
+
+
+def _date_options_with_labels(anchor: date) -> List[Dict[str, str]]:
+    start_day = _add_months(anchor, -1)
+    end_day = _add_months(anchor, 6)
     options: List[Dict[str, str]] = []
-    for delta in range(-span_days, span_days + 1):
-        current_day = anchor + timedelta(days=delta)
+    day_count = (end_day - start_day).days
+    for delta in range(day_count + 1):
+        current_day = start_day + timedelta(days=delta)
         label = _format_date_label_nl(current_day)
         if current_day == anchor:
             label = f"{label} - vandaag"
