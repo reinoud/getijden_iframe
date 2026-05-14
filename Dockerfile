@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apk add --no-cache curl
+RUN apt-get update && apt-get install curl -y
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
