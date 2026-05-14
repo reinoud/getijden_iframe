@@ -41,6 +41,23 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(payload["point_count"], 1)
         self.assertEqual(payload["high_waters"][0]["value_cm"], 123.4)
 
+    @patch("app._find_high_low")
+    @patch("app._merge_points")
+    def test_api_tides_future_shows_message_and_keeps_high_low_times(self, merge_mock, highlow_mock):
+        future_point = app.TidePoint(datetime.fromisoformat("2099-05-14T06:00:00+02:00"), 88.0, "astronomisch")
+        merge_mock.return_value = [future_point]
+        highlow_mock.return_value = ([future_point], [future_point])
+
+        response = self.client.get("/api/tides?date=2099-05-14")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["message"], "geen toekomstige hoogteinformatie beschikbaar")
+        self.assertEqual(payload["points"], [])
+        self.assertEqual(len(payload["high_waters"]), 1)
+        self.assertEqual(len(payload["low_waters"]), 1)
+        self.assertTrue(payload["is_future"])
+
     @patch("app._get_locations_cached")
     def test_api_locations_filters(self, locations_mock):
         locations_mock.return_value = [

@@ -51,7 +51,10 @@ def _post_json(path: str, payload: Dict) -> Dict:
     body = json.dumps(payload).encode("utf-8")
     req = Request(url, data=body, headers={"Content-Type": "application/json"})
     with urlopen(req, timeout=30) as response:
-        return json.loads(response.read())
+        raw = response.read()
+        if not raw or not raw.strip():
+            return {}
+        return json.loads(raw)
 
 
 def _fetch_observations(location_code: str, day: date, process_type: str) -> List[TidePoint]:
@@ -146,6 +149,10 @@ def _serialize_points(points: List[TidePoint]) -> List[Dict]:
 
 def _date_options(anchor: date, span_days: int = 7) -> List[str]:
     return [(anchor + timedelta(days=delta)).isoformat() for delta in range(-span_days, span_days + 1)]
+
+
+def _has_displayable_height_data(points: List[TidePoint]) -> bool:
+    return any(point.source in {"verwachting", "meting"} for point in points)
 
 
 def _fetch_locations() -> List[Dict[str, str]]:
@@ -283,15 +290,24 @@ def api_tides():
     except Exception as exc:  # pragma: no cover
         return jsonify({"error": str(exc)}), 502
 
+    is_future = selected_day > datetime.now(TIMEZONE).date()
+    graph_points = points
+    message = None
+    if is_future and not _has_displayable_height_data(points):
+        graph_points = []
+        message = "geen toekomstige hoogteinformatie beschikbaar"
+
     return jsonify(
         {
             "date": selected_day.isoformat(),
             "location": location,
-            "point_count": len(points),
-            "points": _serialize_points(points),
+            "point_count": len(graph_points),
+            "points": _serialize_points(graph_points),
             "high_waters": _serialize_points(highs),
             "low_waters": _serialize_points(lows),
             "sources_checked": ["verwachting", "meting", "astronomisch"],
+            "message": message,
+            "is_future": is_future,
         }
     )
 

@@ -114,6 +114,15 @@
         width: 100%;
         max-height: 320px;
       }
+      .chart-message {
+        margin-top: 8px;
+        font-size: 0.9rem;
+        color: #4b5563;
+        display: none;
+      }
+      .chart-message.is-visible {
+        display: block;
+      }
       .footer {
         margin-top: 10px;
         font-size: 0.8rem;
@@ -122,6 +131,11 @@
       .error {
         margin-top: 10px;
         color: #b91c1c;
+        min-height: 1.2em;
+      }
+      .notice {
+        margin-top: 8px;
+        color: #1d4ed8;
         min-height: 1.2em;
       }
     </style>
@@ -173,6 +187,8 @@
       </div>
 
       <canvas id="tideChart" aria-label="Grafiek waterstanden" role="img"></canvas>
+      <div class="chart-message" id="chartMessage">Grafiek niet beschikbaar voor deze datum.</div>
+      <div class="notice" id="notice"></div>
       <div class="error" id="error"></div>
 
       <div class="footer">
@@ -188,11 +204,14 @@
       const locationSelect = document.getElementById('locationSelect');
       const highList = document.getElementById('highList');
       const lowList = document.getElementById('lowList');
+      const noticeNode = document.getElementById('notice');
       const errorNode = document.getElementById('error');
       const locationCode = document.getElementById('locationCode');
       const loadingIndicator = document.getElementById('loadingIndicator');
       const loadingText = document.getElementById('loadingText');
-      const chartCtx = document.getElementById('tideChart').getContext('2d');
+      const chartCanvas = document.getElementById('tideChart');
+      const chartMessage = document.getElementById('chartMessage');
+      const chartCtx = chartCanvas.getContext('2d');
       const initialLocation = {{ selected_location|tojson }};
 
       let chart;
@@ -286,6 +305,18 @@
       }
 
       function renderChart(points, selectedDate) {
+        if (!points.length) {
+          if (chart) {
+            chart.destroy();
+            chart = undefined;
+          }
+          chartCanvas.style.display = 'none';
+          chartMessage.classList.add('is-visible');
+          return;
+        }
+
+        chartCanvas.style.display = 'block';
+        chartMessage.classList.remove('is-visible');
         const labels = points.map((p) => p.time);
         const values = points.map((p) => p.value_cm);
 
@@ -333,6 +364,7 @@
 
       async function loadDay(selectedDate, selectedLocation) {
         errorNode.textContent = '';
+        noticeNode.textContent = '';
         setTideLoading(true);
         try {
           const response = await fetch(
@@ -348,6 +380,7 @@
           }
 
           locationCode.textContent = payload.location;
+          noticeNode.textContent = payload.message || '';
           renderList(highList, payload.high_waters || [], 'hoogwater');
           renderList(lowList, payload.low_waters || [], 'laagwater');
           renderChart(payload.points || [], selectedDate);
@@ -358,6 +391,7 @@
           window.history.replaceState({}, '', url.toString());
         } catch (err) {
           errorNode.textContent = err.message || 'Onbekende fout';
+          noticeNode.textContent = '';
           renderList(highList, [], 'hoogwater');
           renderList(lowList, [], 'laagwater');
           renderChart([], selectedDate);
