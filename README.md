@@ -68,5 +68,21 @@ Image tags bij release:
 ></iframe>
 ```
 
+## Example docker-compose
 
+To run the app with Docker Compose, create a `docker-compose.yml` file with the following content:
+
+```yaml
+services:
+  getijden-iframe:
+    image: reinoud/getijden-iframe
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8000:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
 
