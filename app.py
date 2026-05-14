@@ -14,6 +14,7 @@ RWS_BASE_URL = "https://ddapi20-waterwebservices.rijkswaterstaat.nl"
 WATERDATA_INFO_URL = "https://rijkswaterstaatdata.nl/waterdata/"
 DEFAULT_LOCATION_CODE = os.getenv("RWS_LOCATION_CODE", "dordrecht.oudemaas.benedenmerwede")
 TIMEZONE = ZoneInfo("Europe/Amsterdam")
+LOCATION_CACHE_TTL = timedelta(hours=6)
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,10 @@ class TidePoint:
     timestamp: datetime
     value_cm: float
     source: str
+
+
+_location_cache: List[Dict[str, str]] = []
+_location_cache_expires_at: datetime | None = None
 
 
 def _parse_date(raw: str | None) -> date:
@@ -121,33 +126,9 @@ def _find_high_low(points: List[TidePoint]) -> Tuple[List[TidePoint], List[TideP
 
     values = [p.value_cm for p in points]
     smooth = _moving_average(values)
-
-    highs: List[TidePoint] = []
-    lows: List[TidePoint] = []
-    min_gap = timedelta(hours=4)
-
-    for idx in range(1, len(points) - 1):
-        prev_v = smooth[idx - 1]
-        cur_v = smooth[idx]
-        next_v = smooth[idx + 1]
-
-        is_high = cur_v >= prev_v and cur_v > next_v
-        is_low = cur_v <= prev_v and cur_v < next_v
-        if not is_high and not is_low:
-            continue
-
-        candidate = points[idx]
-        target = highs if is_high else lows
-
-        if target and candidate.timestamp - target[-1].timestamp < min_gap:
-            if is_high and candidate.value_cm > target[-1].value_cm:
-                target[-1] = candidate
-            if is_low and candidate.value_cm < target[-1].value_cm:
-                target[-1] = candidate
-            continue
-
-        target.append(candidate)
-
+    high_indices, low_indices = _local_extrema_indices(points, smooth)
+    highs = _select_extrema(points, high_indices, kind="high", count=2)
+    lows = _select_extrema(points, low_indices, kind="low", count=2)
     return (highs, lows)
 
 
@@ -167,20 +148,128 @@ def _date_options(anchor: date, span_days: int = 7) -> List[str]:
     return [(anchor + timedelta(days=delta)).isoformat() for delta in range(-span_days, span_days + 1)]
 
 
+def _fetch_locations() -> List[Dict[str, str]]:
+    payload = {"CatalogusFilter": {}}
+    response = _post_json("/METADATASERVICES/OphalenCatalogus", payload)
+
+    seen: set[str] = set()
+    locations: List[Dict[str, str]] = []
+    for item in response.get("LocatieLijst", []):
+        code = (item.get("Code") or "").strip()
+        name = (item.get("Naam") or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        locations.append({"code": code, "name": name})
+
+    locations.sort(key=lambda loc: (loc["name"].lower() or loc["code"].lower(), loc["code"].lower()))
+    return locations
+
+
+def _get_locations_cached() -> List[Dict[str, str]]:
+    global _location_cache, _location_cache_expires_at
+
+    now = datetime.now(TIMEZONE)
+    if _location_cache and _location_cache_expires_at and now < _location_cache_expires_at:
+        return _location_cache
+
+    try:
+        _location_cache = _fetch_locations()
+        _location_cache_expires_at = now + LOCATION_CACHE_TTL
+    except Exception:
+        if not _location_cache:
+            _location_cache = [{"code": DEFAULT_LOCATION_CODE, "name": DEFAULT_LOCATION_CODE}]
+            _location_cache_expires_at = now + timedelta(minutes=10)
+
+    return _location_cache
+
+
+def _local_extrema_indices(points: List[TidePoint], smooth: List[float]) -> Tuple[List[int], List[int]]:
+    high_indices: List[int] = []
+    low_indices: List[int] = []
+
+    for idx in range(1, len(points) - 1):
+        prev_v = smooth[idx - 1]
+        cur_v = smooth[idx]
+        next_v = smooth[idx + 1]
+        if cur_v >= prev_v and cur_v > next_v:
+            high_indices.append(idx)
+        if cur_v <= prev_v and cur_v < next_v:
+            low_indices.append(idx)
+
+    return (high_indices, low_indices)
+
+
+def _select_extrema(points: List[TidePoint], candidate_indices: List[int], *, kind: str, count: int) -> List[TidePoint]:
+    selected: List[TidePoint] = []
+    selected_indices: set[int] = set()
+    min_gap_seconds = timedelta(hours=4).total_seconds()
+
+    def _can_add(candidate: TidePoint) -> bool:
+        return all(abs((candidate.timestamp - item.timestamp).total_seconds()) >= min_gap_seconds for item in selected)
+
+    def _pick(indices: List[int]) -> None:
+        for idx in indices:
+            candidate = points[idx]
+            if not _can_add(candidate):
+                continue
+            selected.append(candidate)
+            selected_indices.add(idx)
+            if len(selected) >= count:
+                return
+
+    if kind == "high":
+        ranked_candidates = sorted(candidate_indices, key=lambda idx: points[idx].value_cm, reverse=True)
+        fallback_pool = sorted(range(1, len(points) - 1), key=lambda idx: points[idx].value_cm, reverse=True)
+    else:
+        ranked_candidates = sorted(candidate_indices, key=lambda idx: points[idx].value_cm)
+        fallback_pool = sorted(range(1, len(points) - 1), key=lambda idx: points[idx].value_cm)
+
+    _pick(ranked_candidates)
+    if len(selected) < count:
+        _pick([idx for idx in fallback_pool if idx not in selected_indices])
+
+    selected.sort(key=lambda point: point.timestamp)
+    return selected[:count]
+
+
 app = Flask(__name__)
 
 
 @app.route("/")
 def index():
     selected_day = _parse_date(request.args.get("date"))
+    selected_location = request.args.get("location", DEFAULT_LOCATION_CODE)
     return render_template(
         "index.html",
         selected_date=selected_day.isoformat(),
         date_options=_date_options(datetime.now(TIMEZONE).date()),
         default_location=DEFAULT_LOCATION_CODE,
+        selected_location=selected_location,
         waterdata_info_url=WATERDATA_INFO_URL,
         swagger_url="https://ddapi20-waterwebservices.rijkswaterstaat.nl/swagger-ui/index.html",
     )
+
+
+@app.route("/api/locations")
+def api_locations():
+    query = (request.args.get("q") or "").strip().lower()
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", "50"))))
+    except ValueError:
+        limit = 50
+
+    locations = _get_locations_cached()
+    if query:
+        filtered = [
+            loc
+            for loc in locations
+            if query in loc["code"].lower() or query in loc["name"].lower()
+        ]
+    else:
+        filtered = locations
+
+    return jsonify({"count": len(filtered), "items": filtered[:limit]})
 
 
 @app.route("/api/tides")
@@ -203,6 +292,17 @@ def api_tides():
             "high_waters": _serialize_points(highs),
             "low_waters": _serialize_points(lows),
             "sources_checked": ["verwachting", "meting", "astronomisch"],
+        }
+    )
+
+
+@app.route("/health")
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "time": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+            "default_location": DEFAULT_LOCATION_CODE,
         }
     )
 

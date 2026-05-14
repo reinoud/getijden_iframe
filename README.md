@@ -3,6 +3,7 @@
 Kleine Flask-app die een HTML-pagina toont met:
 - tijdstippen van hoog- en laagwater
 - een grafiek met waterstanden per dag
+- locatiekeuze via pull-down met zoekveld
 
 Data komt uit:
 - https://rijkswaterstaatdata.nl/waterdata/
@@ -13,6 +14,11 @@ Data komt uit:
 Environment variabelen:
 - `RWS_LOCATION_CODE` (default: `dordrecht.oudemaas.benedenmerwede`)
 - `PORT` (default: `8000`)
+
+API endpoints:
+- `GET /api/tides?date=YYYY-MM-DD&location=<locatiecode>`
+- `GET /api/locations?q=<zoekterm>&limit=60`
+- `GET /health`
 
 ## Lokaal draaien
 

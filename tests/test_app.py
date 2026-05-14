@@ -23,8 +23,8 @@ class TideAppTests(unittest.TestCase):
 
         highs, lows = app._find_high_low(points)
 
-        self.assertGreaterEqual(len(highs), 2)
-        self.assertGreaterEqual(len(lows), 2)
+        self.assertEqual(len(highs), 2)
+        self.assertEqual(len(lows), 2)
 
     @patch("app._find_high_low")
     @patch("app._merge_points")
@@ -40,6 +40,28 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(payload["date"], "2026-05-14")
         self.assertEqual(payload["point_count"], 1)
         self.assertEqual(payload["high_waters"][0]["value_cm"], 123.4)
+
+    @patch("app._get_locations_cached")
+    def test_api_locations_filters(self, locations_mock):
+        locations_mock.return_value = [
+            {"code": "dordrecht.oudemaas.benedenmerwede", "name": "Dordrecht Oude Maas, Beneden Merwede"},
+            {"code": "hoekvanholland", "name": "Hoek van Holland"},
+        ]
+
+        response = self.client.get("/api/locations?q=dord")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["code"], "dordrecht.oudemaas.benedenmerwede")
+
+    def test_health_returns_ok(self):
+        response = self.client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertIn("time", payload)
 
 
 if __name__ == "__main__":
