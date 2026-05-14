@@ -42,11 +42,25 @@ docker run --rm -p 8000:8000 \
   getijden-iframe
 ```
 
+## GitHub Actions
+
+Er zijn twee workflows toegevoegd:
+- `tests.yml`: draait de testsuite bij elke push en pull request.
+- `release-docker.yml`: bouwt en pusht het Docker image naar Docker Hub bij een gepubliceerde GitHub release.
+
+Benodigde GitHub repository secrets:
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN` (Docker Hub access token)
+
+Image tags bij release:
+- `<dockerhub-user>/getijden-iframe:latest`
+- `<dockerhub-user>/getijden-iframe:<release-tag>`
+
 ## iFrame embed
 
 ```html
 <iframe
-  src="https://jouw-host/?date=2026-05-14"
+  src="https://jouw-host/"
   width="100%"
   height="520"
   style="border:0"
@@ -54,6 +68,5 @@ docker run --rm -p 8000:8000 \
 ></iframe>
 ```
 
-Gebruik zonder query-parameter om standaard vandaag te tonen.
 
 
