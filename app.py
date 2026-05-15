@@ -1,6 +1,7 @@
 import calendar
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Tuple
@@ -16,6 +17,11 @@ WATERDATA_INFO_URL = "https://rijkswaterstaatdata.nl/waterdata/"
 DEFAULT_LOCATION_CODE = os.getenv("RWS_LOCATION_CODE", "dordrecht.oudemaas.benedenmerwede")
 TIMEZONE = ZoneInfo("Europe/Amsterdam")
 LOCATION_CACHE_TTL = timedelta(hours=6)
+MAX_LOCATION_CODE_LENGTH = 80
+MAX_SEARCH_QUERY_LENGTH = 80
+MIN_API_DAY_OFFSET = -31
+MAX_API_DAY_OFFSET = 183
+LOCATION_CODE_RE = re.compile(r"^[a-z0-9._-]+$", re.IGNORECASE)
 
 DUTCH_WEEKDAYS = [
     "maandag",
@@ -61,6 +67,59 @@ def _parse_date(raw: str | None) -> date:
         return date.fromisoformat(raw)
     except ValueError:
         return datetime.now(TIMEZONE).date()
+
+
+def _validate_api_date(raw: str | None) -> date:
+    if raw:
+        try:
+            selected = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("date moet het formaat YYYY-MM-DD hebben") from exc
+    else:
+        selected = datetime.now(TIMEZONE).date()
+    today = datetime.now(TIMEZONE).date()
+    min_day = today + timedelta(days=MIN_API_DAY_OFFSET)
+    max_day = today + timedelta(days=MAX_API_DAY_OFFSET)
+    if selected < min_day or selected > max_day:
+        raise ValueError(
+            f"date buiten toegestane range ({min_day.isoformat()} t/m {max_day.isoformat()})"
+        )
+    return selected
+
+
+def _validate_location_code(raw: str | None) -> str:
+    value = (raw or DEFAULT_LOCATION_CODE).strip()
+    if not value:
+        raise ValueError("location is verplicht")
+    if len(value) > MAX_LOCATION_CODE_LENGTH:
+        raise ValueError("location is te lang")
+    if not LOCATION_CODE_RE.fullmatch(value):
+        raise ValueError("location bevat ongeldige tekens")
+    return value
+
+
+def _validate_locations_query(raw: str | None) -> str:
+    query = (raw or "").strip().lower()
+    if len(query) > MAX_SEARCH_QUERY_LENGTH:
+        raise ValueError("q is te lang")
+    if any(ord(ch) < 32 for ch in query):
+        raise ValueError("q bevat ongeldige tekens")
+    return query
+
+
+def _validate_limit(raw: str | None) -> int:
+    if raw is None:
+        return 50
+    if not raw.isdigit():
+        raise ValueError("limit moet een positief geheel getal zijn")
+    limit = int(raw)
+    if limit < 1 or limit > 200:
+        raise ValueError("limit moet tussen 1 en 200 liggen")
+    return limit
+
+
+def _json_bad_request(message: str):
+    return jsonify({"error": message}), 400
 
 
 def _period_for_day(day: date) -> Tuple[str, str]:
@@ -324,11 +383,11 @@ def vandaag():
 
 @app.route("/api/locations")
 def api_locations():
-    query = (request.args.get("q") or "").strip().lower()
     try:
-        limit = max(1, min(200, int(request.args.get("limit", "50"))))
-    except ValueError:
-        limit = 50
+        query = _validate_locations_query(request.args.get("q"))
+        limit = _validate_limit(request.args.get("limit"))
+    except ValueError as exc:
+        return _json_bad_request(str(exc))
 
     locations = _get_locations_cached()
     if query:
@@ -345,8 +404,11 @@ def api_locations():
 
 @app.route("/api/tides")
 def api_tides():
-    selected_day = _parse_date(request.args.get("date"))
-    location = request.args.get("location", DEFAULT_LOCATION_CODE)
+    try:
+        selected_day = _validate_api_date(request.args.get("date"))
+        location = _validate_location_code(request.args.get("location"))
+    except ValueError as exc:
+        return _json_bad_request(str(exc))
 
     try:
         points = _merge_points(selected_day, location)

@@ -20,6 +20,12 @@ API endpoints:
 - `GET /api/locations?q=<zoekterm>&limit=60`
 - `GET /health`
 
+Parametervalidatie (misbruikpreventie):
+- `date` moet `YYYY-MM-DD` zijn en binnen `vandaag - 31 dagen` t/m `vandaag + 183 dagen` vallen.
+- `location` accepteert alleen letters/cijfers en `.` `_` `-` (max 80 tekens).
+- `limit` moet een geheel getal zijn tussen `1` en `200`.
+- `q` is maximaal 80 tekens en control characters worden geweigerd.
+
 HTML endpoints:
 - `GET /` volledige pagina met datumkeuze + grafiek
 - `GET /vandaag` compacte pagina voor vandaag (zonder grafiek) met alleen hoog- en laagwatertijden
@@ -44,6 +50,15 @@ docker build -t getijden-iframe .
 docker run --rm -p 8000:8000 \
   -e RWS_LOCATION_CODE=dordrecht.oudemaas.benedenmerwede \
   getijden-iframe
+```
+
+De container start de app nu via **Gunicorn** als productie-WSGI server.
+De bind-poort volgt daarbij de environment variabele `PORT` (default: `8000`).
+
+Handmatig lokaal met Gunicorn starten kan ook:
+
+```bash
+gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --timeout 60 app:app
 ```
 
 ## GitHub Actions

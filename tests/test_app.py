@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 import app
@@ -56,11 +56,12 @@ class TideAppTests(unittest.TestCase):
     @patch("app._find_high_low")
     @patch("app._merge_points")
     def test_api_tides_future_shows_message_and_keeps_high_low_times(self, merge_mock, highlow_mock):
-        future_point = app.TidePoint(datetime.fromisoformat("2099-05-14T06:00:00+02:00"), 88.0, "astronomisch")
+        future_day = datetime.now(app.TIMEZONE).date() + timedelta(days=10)
+        future_point = app.TidePoint(datetime.fromisoformat(f"{future_day.isoformat()}T06:00:00+02:00"), 88.0, "astronomisch")
         merge_mock.return_value = [future_point]
         highlow_mock.return_value = ([future_point], [future_point])
 
-        response = self.client.get("/api/tides?date=2099-05-14")
+        response = self.client.get(f"/api/tides?date={future_day.isoformat()}")
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
@@ -91,6 +92,41 @@ class TideAppTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "ok")
         self.assertIn("time", payload)
+
+    def test_api_tides_rejects_invalid_date_format(self):
+        response = self.client.get("/api/tides?date=2026/05/14")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("YYYY-MM-DD", payload["error"])
+
+    def test_api_tides_rejects_invalid_location_chars(self):
+        response = self.client.get("/api/tides?date=2026-05-14&location=dordrecht;<script>")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("ongeldige tekens", payload["error"])
+
+    def test_api_tides_rejects_date_outside_allowed_range(self):
+        response = self.client.get("/api/tides?date=2100-01-01")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("buiten toegestane range", payload["error"])
+
+    def test_api_locations_rejects_bad_limit(self):
+        response = self.client.get("/api/locations?limit=abc")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("positief geheel getal", payload["error"])
+
+    def test_api_locations_rejects_control_chars(self):
+        response = self.client.get("/api/locations?q=line%0Abreak")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("ongeldige tekens", payload["error"])
 
     def test_vandaag_page_has_expected_heading_and_no_chart(self):
         response = self.client.get("/vandaag")
