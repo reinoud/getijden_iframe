@@ -312,6 +312,16 @@ def index():
     )
 
 
+@app.route("/vandaag")
+def vandaag():
+    today = datetime.now(TIMEZONE).date()
+    return render_template(
+        "vandaag.html",
+        selected_date=today.isoformat(),
+        selected_location=DEFAULT_LOCATION_CODE,
+    )
+
+
 @app.route("/api/locations")
 def api_locations():
     query = (request.args.get("q") or "").strip().lower()

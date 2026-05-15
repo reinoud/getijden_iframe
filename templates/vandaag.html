@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hoog en Laagwater Vandaag</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 10px;
+        background: #f8f9fb;
+        color: #1f2937;
+      }
+      .card {
+        max-width: 560px;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      h1 {
+        margin: 0 0 8px 0;
+        font-size: 1.05rem;
+      }
+      .meta {
+        margin: 0 0 10px 0;
+        font-size: 0.85rem;
+        color: #4b5563;
+      }
+      .lists {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .listbox {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        background: #f9fafb;
+      }
+      .listbox h2 {
+        margin: 0 0 6px 0;
+        font-size: 0.95rem;
+      }
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .loading {
+        margin-bottom: 8px;
+        color: #1d4ed8;
+        font-size: 0.85rem;
+      }
+      .error {
+        margin-top: 8px;
+        color: #b91c1c;
+        min-height: 1.2em;
+        font-size: 0.85rem;
+      }
+      @media (max-width: 500px) {
+        .lists {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Hoog en Laagwater voor vandaag in de Biesbosch</h1>
+      <p class="meta" id="metaLine">Datum: {{ selected_date }} | Locatiecode: {{ selected_location }}</p>
+      <div class="loading" id="loadingText">Getijdedata laden...</div>
+
+      <div class="lists">
+        <section class="listbox">
+          <h2>Hoogwater</h2>
+          <ul id="highList"></ul>
+        </section>
+        <section class="listbox">
+          <h2>Laagwater</h2>
+          <ul id="lowList"></ul>
+        </section>
+      </div>
+
+      <div class="error" id="error"></div>
+    </div>
+
+    <script>
+      const selectedDate = {{ selected_date|tojson }};
+      const selectedLocation = {{ selected_location|tojson }};
+      const loadingText = document.getElementById('loadingText');
+      const errorNode = document.getElementById('error');
+      const highList = document.getElementById('highList');
+      const lowList = document.getElementById('lowList');
+
+      function renderList(node, rows, label) {
+        node.innerHTML = '';
+        if (!rows.length) {
+          node.innerHTML = `<li>Geen ${label} gevonden</li>`;
+          return;
+        }
+        rows.forEach((item) => {
+          const li = document.createElement('li');
+          li.textContent = `${item.time} - ${item.value_cm.toFixed(1)} cm`;
+          node.appendChild(li);
+        });
+      }
+
+      async function loadToday() {
+        errorNode.textContent = '';
+        loadingText.style.display = 'block';
+        try {
+          const response = await fetch(
+            `/api/tides?date=${encodeURIComponent(selectedDate)}&location=${encodeURIComponent(selectedLocation)}`
+          );
+          if (!response.ok) {
+            throw new Error(`API fout (${response.status})`);
+          }
+
+          const payload = await response.json();
+          if (payload.error) {
+            throw new Error(payload.error);
+          }
+
+          renderList(highList, payload.high_waters || [], 'hoogwater');
+          renderList(lowList, payload.low_waters || [], 'laagwater');
+        } catch (err) {
+          errorNode.textContent = err.message || 'Onbekende fout';
+          renderList(highList, [], 'hoogwater');
+          renderList(lowList, [], 'laagwater');
+        } finally {
+          loadingText.style.display = 'none';
+        }
+      }
+
+      loadToday();
+    </script>
+  </body>
+</html>
+

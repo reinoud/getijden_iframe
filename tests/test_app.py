@@ -92,6 +92,16 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertIn("time", payload)
 
+    def test_vandaag_page_has_expected_heading_and_no_chart(self):
+        response = self.client.get("/vandaag")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Hoog en Laagwater voor vandaag in de Biesbosch", html)
+        self.assertIn("Hoogwater", html)
+        self.assertIn("Laagwater", html)
+        self.assertNotIn("id=\"tideChart\"", html)
+
 
 if __name__ == "__main__":
     unittest.main()

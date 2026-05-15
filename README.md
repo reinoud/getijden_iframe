@@ -3,7 +3,7 @@
 Kleine Flask-app die een HTML-pagina toont met:
 - tijdstippen van hoog- en laagwater
 - een grafiek met waterstanden per dag
-- locatiekeuze via pull-down met zoekveld
+- datumkeuze via pull-down
 
 Data komt uit:
 - https://rijkswaterstaatdata.nl/waterdata/
@@ -19,6 +19,10 @@ API endpoints:
 - `GET /api/tides?date=YYYY-MM-DD&location=<locatiecode>`
 - `GET /api/locations?q=<zoekterm>&limit=60`
 - `GET /health`
+
+HTML endpoints:
+- `GET /` volledige pagina met datumkeuze + grafiek
+- `GET /vandaag` compacte pagina voor vandaag (zonder grafiek) met alleen hoog- en laagwatertijden
 
 ## Lokaal draaien
 
@@ -63,6 +67,18 @@ Image tags bij release:
   src="https://jouw-host/"
   width="100%"
   height="520"
+  style="border:0"
+  loading="lazy"
+></iframe>
+```
+
+Compacte embed voor alleen vandaag:
+
+```html
+<iframe
+  src="https://jouw-host/vandaag"
+  width="100%"
+  height="240"
   style="border:0"
   loading="lazy"
 ></iframe>
