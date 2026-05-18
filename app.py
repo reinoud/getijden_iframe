@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
 
+import fitz
+
 
 RWS_BASE_URL = "https://ddapi20-waterwebservices.rijkswaterstaat.nl"
 WATERDATA_INFO_URL = "https://rijkswaterstaatdata.nl/waterdata/"
@@ -22,6 +24,11 @@ MAX_SEARCH_QUERY_LENGTH = 80
 MIN_API_DAY_OFFSET = -31
 MAX_API_DAY_OFFSET = 183
 LOCATION_CODE_RE = re.compile(r"^[a-z0-9._-]+$", re.IGNORECASE)
+STROOMATLAS_PDF_FILENAME = "Stroomatlas Dordrecht.pdf"
+STROOMATLAS_MIN_OFFSET = -6
+STROOMATLAS_MAX_OFFSET = 6
+STROOMATLAS_PAGE_SHIFT = 7
+STROOMATLAS_RENDER_SCALE = 1.5
 
 DUTCH_WEEKDAYS = [
     "maandag",
@@ -58,6 +65,7 @@ class TidePoint:
 
 _location_cache: List[Dict[str, str]] = []
 _location_cache_expires_at: datetime | None = None
+_stroomatlas_image_cache: Dict[int, bytes] = {}
 
 
 def _parse_date(raw: str | None) -> date:
@@ -232,6 +240,47 @@ def _serialize_points(points: List[TidePoint]) -> List[Dict]:
     ]
 
 
+def _build_stroomatlas_windows(high_waters: List[TidePoint]) -> List[Dict]:
+    offsets = list(range(STROOMATLAS_MIN_OFFSET, STROOMATLAS_MAX_OFFSET + 1))
+    windows: List[Dict] = []
+
+    for hw in sorted(high_waters, key=lambda p: p.timestamp):
+        rows: List[Dict[str, str | int]] = []
+        for offset in offsets:
+            ts = hw.timestamp + timedelta(hours=offset)
+            if offset == 0:
+                relative_label = "HW Dordrecht"
+            elif offset < 0:
+                relative_label = f"{abs(offset)} uur voor HW Dordrecht"
+            else:
+                relative_label = f"{offset} uur na HW Dordrecht"
+
+            day_shift = (ts.date() - hw.timestamp.date()).days
+            shift_suffix = ""
+            if day_shift > 0:
+                shift_suffix = f" (+{day_shift}d)"
+            elif day_shift < 0:
+                shift_suffix = f" ({day_shift}d)"
+
+            rows.append(
+                {
+                    "offset_hours": offset,
+                    "relative_label": relative_label,
+                    "time": f"{ts.strftime('%H:%M')}{shift_suffix}",
+                    "image_url": f"/stroomatlas/moment/{_canonical_stroomatlas_image_offset(offset)}.png",
+                }
+            )
+
+        windows.append(
+            {
+                "hw_time": hw.timestamp.strftime("%H:%M"),
+                "rows": rows,
+            }
+        )
+
+    return windows
+
+
 def _date_options(anchor: date, span_days: int = 7) -> List[str]:
     return [(anchor + timedelta(days=delta)).isoformat() for delta in range(-span_days, span_days + 1)]
 
@@ -266,6 +315,37 @@ def _date_options_with_labels(anchor: date) -> List[Dict[str, str]]:
 
 def _has_displayable_height_data(points: List[TidePoint]) -> bool:
     return any(point.source in {"verwachting", "meting"} for point in points)
+
+
+def _stroomatlas_pdf_path() -> str:
+    return os.path.join(app.template_folder or "templates", STROOMATLAS_PDF_FILENAME)
+
+
+def _stroomatlas_page_index(offset_hours: int) -> int:
+    return offset_hours + STROOMATLAS_PAGE_SHIFT
+
+
+def _canonical_stroomatlas_image_offset(offset_hours: int) -> int:
+    # -1 and 6 refer to the same atlas moment image; normalize to the working URL set.
+    return offset_hours % 7
+
+
+def _render_stroomatlas_moment_png(offset_hours: int) -> bytes:
+    if offset_hours in _stroomatlas_image_cache:
+        return _stroomatlas_image_cache[offset_hours]
+
+    if offset_hours < STROOMATLAS_MIN_OFFSET or offset_hours > STROOMATLAS_MAX_OFFSET:
+        raise ValueError("ongeldig stroomatlas moment")
+
+    page_index = _stroomatlas_page_index(offset_hours)
+    with fitz.open(_stroomatlas_pdf_path()) as doc:
+        if page_index < 0 or page_index >= doc.page_count:
+            raise ValueError("stroomatlas bevat geen pagina voor dit moment")
+        page = doc[page_index]
+        pix = page.get_pixmap(matrix=fitz.Matrix(STROOMATLAS_RENDER_SCALE, STROOMATLAS_RENDER_SCALE), alpha=False)
+        png_bytes = pix.tobytes("png")
+        _stroomatlas_image_cache[offset_hours] = png_bytes
+        return png_bytes
 
 
 def _fetch_locations() -> List[Dict[str, str]]:
@@ -381,6 +461,18 @@ def vandaag():
     )
 
 
+@app.route("/stroomatlas/moment/<int:offset_hours>.png")
+def stroomatlas_moment_image(offset_hours: int):
+    try:
+        png_bytes = _render_stroomatlas_moment_png(offset_hours)
+    except ValueError:
+        return jsonify({"error": "ongeldig stroomatlas moment"}), 404
+    except Exception as exc:  # pragma: no cover
+        return jsonify({"error": str(exc)}), 502
+
+    return app.response_class(png_bytes, mimetype="image/png")
+
+
 @app.route("/api/locations")
 def api_locations():
     try:
@@ -431,6 +523,7 @@ def api_tides():
             "points": _serialize_points(graph_points),
             "high_waters": _serialize_points(highs),
             "low_waters": _serialize_points(lows),
+            "stroomatlas_windows": _build_stroomatlas_windows(highs),
             "sources_checked": ["verwachting", "meting", "astronomisch"],
             "message": message,
             "is_future": is_future,

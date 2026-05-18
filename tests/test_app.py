@@ -52,6 +52,11 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(payload["date"], "2026-05-14")
         self.assertEqual(payload["point_count"], 1)
         self.assertEqual(payload["high_waters"][0]["value_cm"], 123.4)
+        self.assertIn("stroomatlas_windows", payload)
+        self.assertEqual(len(payload["stroomatlas_windows"]), 1)
+        self.assertEqual(len(payload["stroomatlas_windows"][0]["rows"]), 13)
+        self.assertEqual(payload["stroomatlas_windows"][0]["rows"][0]["relative_label"], "6 uur voor HW Dordrecht")
+        self.assertEqual(payload["stroomatlas_windows"][0]["rows"][0]["image_url"], "/stroomatlas/moment/1.png")
 
     @patch("app._find_high_low")
     @patch("app._merge_points")
@@ -137,6 +142,19 @@ class TideAppTests(unittest.TestCase):
         self.assertIn("Hoogwater", html)
         self.assertIn("Laagwater", html)
         self.assertNotIn("id=\"tideChart\"", html)
+
+    def test_stroomatlas_moment_image_route_serves_png(self):
+        response = self.client.get("/stroomatlas/moment/0.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("image/png", response.content_type)
+        self.assertGreater(len(response.get_data()), 0)
+        response.close()
+
+    def test_stroomatlas_moment_image_route_rejects_invalid_offset(self):
+        response = self.client.get("/stroomatlas/moment/99.png")
+
+        self.assertEqual(response.status_code, 404)
 
 
 if __name__ == "__main__":
