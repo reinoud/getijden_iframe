@@ -4,6 +4,7 @@ Kleine Flask-app die een HTML-pagina toont met:
 - tijdstippen van hoog- en laagwater
 - een grafiek met waterstanden per dag
 - een stroomatlas met losse moment-plaatjes waarbij onder elk plaatje de concrete tijd van die dag staat
+  - de getoonde stroomatlas-tijden worden weergegeven als Hoogwater Dordrecht (2 uur eerder dan HW HvH)
 - datumkeuze via pull-down
 
 Data komt uit:
@@ -21,6 +22,7 @@ API endpoints:
 - `GET /api/locations?q=<zoekterm>&limit=60`
 - `GET /health`
 - `GET /stroomatlas/moment/<offset>.png` voor momentafbeeldingen (`offset` van `-6` t/m `6` uur rond HW)
+- `GET /stroomatlas/legend.png` voor het bovenste kleurenplaatje (zonder tijd)
 
 Parametervalidatie (misbruikpreventie):
 - `date` moet `YYYY-MM-DD` zijn en binnen `vandaag - 31 dagen` t/m `vandaag + 183 dagen` vallen.
@@ -29,7 +31,8 @@ Parametervalidatie (misbruikpreventie):
 - `q` is maximaal 80 tekens en control characters worden geweigerd.
 
 HTML endpoints:
-- `GET /` volledige pagina met datumkeuze + grafiek + stroomatlasmomenten als losse afbeeldingen
+- `GET /` volledige pagina met datumkeuze + grafiek (zonder stroomatlas)
+- `GET /stroomatlas` volledige pagina met datumkeuze + grafiek + stroomatlasmomenten als losse afbeeldingen (start met kleurenplaatje zonder tijd)
 - `GET /vandaag` compacte pagina voor vandaag (zonder grafiek) met alleen hoog- en laagwatertijden
 
 ## Lokaal draaien

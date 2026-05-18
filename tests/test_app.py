@@ -38,6 +38,14 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(len(today_rows), 1)
         self.assertIn("vandaag", today_rows[0]["label"])
 
+    def test_stroomatlas_windows_use_dordrecht_shifted_times(self):
+        hw = app.TidePoint(datetime.fromisoformat("2026-05-14T12:00:00+02:00"), 120.0, "meting")
+        windows = app._build_stroomatlas_windows([hw])
+
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]["hw_time"], "10:00")
+        self.assertEqual(windows[0]["rows"][6]["time"], "10:00")
+
     @patch("app._find_high_low")
     @patch("app._merge_points")
     def test_api_tides_returns_json(self, merge_mock, highlow_mock):
@@ -98,6 +106,22 @@ class TideAppTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertIn("time", payload)
 
+    def test_index_without_stroomatlas_hides_atlas_section(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertNotIn("Stroomatlas Dordrecht", html)
+        self.assertNotIn("/stroomatlas/legend.png", html)
+
+    def test_stroomatlas_route_shows_atlas_section(self):
+        response = self.client.get("/stroomatlas")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Stroomatlas Dordrecht", html)
+        self.assertIn("/stroomatlas/legend.png", html)
+
     def test_api_tides_rejects_invalid_date_format(self):
         response = self.client.get("/api/tides?date=2026/05/14")
 
@@ -155,6 +179,14 @@ class TideAppTests(unittest.TestCase):
         response = self.client.get("/stroomatlas/moment/99.png")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_stroomatlas_legend_image_route_serves_png(self):
+        response = self.client.get("/stroomatlas/legend.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("image/png", response.content_type)
+        self.assertGreater(len(response.get_data()), 0)
+        response.close()
 
 
 if __name__ == "__main__":

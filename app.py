@@ -29,6 +29,8 @@ STROOMATLAS_MIN_OFFSET = -6
 STROOMATLAS_MAX_OFFSET = 6
 STROOMATLAS_PAGE_SHIFT = 7
 STROOMATLAS_RENDER_SCALE = 1.5
+STROOMATLAS_LEGEND_PAGE_INDEX = 0
+STROOMATLAS_DORDRECHT_SHIFT_HOURS = -2
 
 DUTCH_WEEKDAYS = [
     "maandag",
@@ -245,9 +247,10 @@ def _build_stroomatlas_windows(high_waters: List[TidePoint]) -> List[Dict]:
     windows: List[Dict] = []
 
     for hw in sorted(high_waters, key=lambda p: p.timestamp):
+        hw_dordrecht = hw.timestamp + timedelta(hours=STROOMATLAS_DORDRECHT_SHIFT_HOURS)
         rows: List[Dict[str, str | int]] = []
         for offset in offsets:
-            ts = hw.timestamp + timedelta(hours=offset)
+            ts = hw_dordrecht + timedelta(hours=offset)
             if offset == 0:
                 relative_label = "HW Dordrecht"
             elif offset < 0:
@@ -255,7 +258,7 @@ def _build_stroomatlas_windows(high_waters: List[TidePoint]) -> List[Dict]:
             else:
                 relative_label = f"{offset} uur na HW Dordrecht"
 
-            day_shift = (ts.date() - hw.timestamp.date()).days
+            day_shift = (ts.date() - hw_dordrecht.date()).days
             shift_suffix = ""
             if day_shift > 0:
                 shift_suffix = f" (+{day_shift}d)"
@@ -273,7 +276,7 @@ def _build_stroomatlas_windows(high_waters: List[TidePoint]) -> List[Dict]:
 
         windows.append(
             {
-                "hw_time": hw.timestamp.strftime("%H:%M"),
+                "hw_time": hw_dordrecht.strftime("%H:%M"),
                 "rows": rows,
             }
         )
@@ -345,6 +348,21 @@ def _render_stroomatlas_moment_png(offset_hours: int) -> bytes:
         pix = page.get_pixmap(matrix=fitz.Matrix(STROOMATLAS_RENDER_SCALE, STROOMATLAS_RENDER_SCALE), alpha=False)
         png_bytes = pix.tobytes("png")
         _stroomatlas_image_cache[offset_hours] = png_bytes
+        return png_bytes
+
+
+def _render_stroomatlas_legend_png() -> bytes:
+    cache_key = -999
+    if cache_key in _stroomatlas_image_cache:
+        return _stroomatlas_image_cache[cache_key]
+
+    with fitz.open(_stroomatlas_pdf_path()) as doc:
+        if STROOMATLAS_LEGEND_PAGE_INDEX >= doc.page_count:
+            raise ValueError("stroomatlas bevat geen legenda-pagina")
+        page = doc[STROOMATLAS_LEGEND_PAGE_INDEX]
+        pix = page.get_pixmap(matrix=fitz.Matrix(STROOMATLAS_RENDER_SCALE, STROOMATLAS_RENDER_SCALE), alpha=False)
+        png_bytes = pix.tobytes("png")
+        _stroomatlas_image_cache[cache_key] = png_bytes
         return png_bytes
 
 
@@ -439,13 +457,30 @@ app = Flask(__name__)
 @app.route("/")
 def index():
     selected_day = _parse_date(request.args.get("date"))
-    selected_location = request.args.get("location", DEFAULT_LOCATION_CODE)
+    selected_location = DEFAULT_LOCATION_CODE
     return render_template(
         "index.html",
         selected_date=selected_day.isoformat(),
         date_options=_date_options_with_labels(datetime.now(TIMEZONE).date()),
         default_location=DEFAULT_LOCATION_CODE,
         selected_location=selected_location,
+        include_stroomatlas=False,
+        waterdata_info_url=WATERDATA_INFO_URL,
+        swagger_url="https://ddapi20-waterwebservices.rijkswaterstaat.nl/swagger-ui/index.html",
+    )
+
+
+@app.route("/stroomatlas")
+def index_with_stroomatlas():
+    selected_day = _parse_date(request.args.get("date"))
+    selected_location = DEFAULT_LOCATION_CODE
+    return render_template(
+        "index.html",
+        selected_date=selected_day.isoformat(),
+        date_options=_date_options_with_labels(datetime.now(TIMEZONE).date()),
+        default_location=DEFAULT_LOCATION_CODE,
+        selected_location=selected_location,
+        include_stroomatlas=True,
         waterdata_info_url=WATERDATA_INFO_URL,
         swagger_url="https://ddapi20-waterwebservices.rijkswaterstaat.nl/swagger-ui/index.html",
     )
@@ -467,6 +502,18 @@ def stroomatlas_moment_image(offset_hours: int):
         png_bytes = _render_stroomatlas_moment_png(offset_hours)
     except ValueError:
         return jsonify({"error": "ongeldig stroomatlas moment"}), 404
+    except Exception as exc:  # pragma: no cover
+        return jsonify({"error": str(exc)}), 502
+
+    return app.response_class(png_bytes, mimetype="image/png")
+
+
+@app.route("/stroomatlas/legend.png")
+def stroomatlas_legend_image():
+    try:
+        png_bytes = _render_stroomatlas_legend_png()
+    except ValueError:
+        return jsonify({"error": "stroomatlas legenda niet beschikbaar"}), 404
     except Exception as exc:  # pragma: no cover
         return jsonify({"error": str(exc)}), 502
 

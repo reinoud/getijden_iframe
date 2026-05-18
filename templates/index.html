@@ -127,8 +127,11 @@
       }
       .atlas-frame {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        grid-template-columns: 1fr;
         gap: 10px;
+      }
+      .atlas-legend {
+        margin-bottom: 10px;
       }
       .atlas-times {
         margin-top: 10px;
@@ -150,6 +153,19 @@
         display: block;
         font-size: 0.88rem;
         padding: 2px 0;
+      }
+      .atlas-links {
+        margin: 0 0 8px 0;
+        font-size: 0.88rem;
+      }
+      .atlas-links a {
+        display: block;
+        margin-bottom: 2px;
+        color: #1d4ed8;
+        text-decoration: none;
+      }
+      .atlas-links a:hover {
+        text-decoration: underline;
       }
       .atlas-image {
         width: 100%;
@@ -223,10 +239,15 @@
       <canvas id="tideChart" aria-label="Grafiek waterstanden" role="img"></canvas>
       <div class="chart-message" id="chartMessage">Grafiek niet beschikbaar voor deze datum.</div>
 
+      {% if include_stroomatlas %}
       <section class="atlas" aria-label="Stroomatlas Dordrecht">
         <h2>Stroomatlas Dordrecht</h2>
+        <div class="atlas-legend">
+          <img class="atlas-image" src="/stroomatlas/legend.png" alt="Stroomatlas kleurenoverzicht" loading="lazy" />
+        </div>
         <div class="atlas-times" id="atlasTimes"></div>
       </section>
+      {% endif %}
 
       <div class="notice" id="notice"></div>
       <div class="error" id="error"></div>
@@ -251,6 +272,7 @@
       const atlasTimes = document.getElementById('atlasTimes');
       const chartCtx = chartCanvas.getContext('2d');
       const initialLocation = {{ selected_location|tojson }};
+      const includeStroomatlas = {{ include_stroomatlas|tojson }};
 
       let chart;
       let tideLoading = false;
@@ -340,46 +362,76 @@
       }
 
       function renderStroomatlas(windows) {
+        if (!atlasTimes) {
+          return;
+        }
         atlasTimes.innerHTML = '';
         if (!windows || !windows.length) {
           atlasTimes.innerHTML = '<div class="atlas-card">Geen hoogwatermomenten beschikbaar voor de stroomatlas.</div>';
           return;
         }
 
-        windows.forEach((windowData, idx) => {
-          const card = document.createElement('section');
-          card.className = 'atlas-card';
-
-          const title = document.createElement('h3');
-          title.textContent = `Stroomatlas rond HW ${idx + 1} (${windowData.hw_time})`;
-          card.appendChild(title);
-
-          const grid = document.createElement('div');
-          grid.className = 'atlas-frame';
-
+        const byOffset = new Map();
+        windows.forEach((windowData) => {
           (windowData.rows || []).forEach((row) => {
-            const rowNode = document.createElement('div');
-            rowNode.className = 'atlas-row';
-
-            const imageNode = document.createElement('img');
-            imageNode.className = 'atlas-image';
-            imageNode.src = row.image_url;
-            imageNode.alt = row.relative_label;
-            imageNode.loading = 'lazy';
-            rowNode.appendChild(imageNode);
-
-            const timeNode = document.createElement('span');
-            timeNode.className = 'atlas-time';
-            timeNode.textContent = row.time;
-            rowNode.appendChild(timeNode);
-
-            grid.appendChild(rowNode);
+            const key = row.offset_hours;
+            if (!byOffset.has(key)) {
+              byOffset.set(key, {
+                offset: row.offset_hours,
+                image_url: row.image_url,
+                relative_label: row.relative_label,
+                times: [],
+              });
+            }
+            byOffset.get(key).times.push(row.time);
           });
-
-          card.appendChild(grid);
-
-          atlasTimes.appendChild(card);
         });
+
+        const mergedRows = Array.from(byOffset.values()).sort((a, b) => a.offset - b.offset);
+        const card = document.createElement('section');
+        card.className = 'atlas-card';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Stroomatlasmomenten met tijden van beide hoogwaters';
+        card.appendChild(title);
+
+        const linksNode = document.createElement('div');
+        linksNode.className = 'atlas-links';
+        card.appendChild(linksNode);
+
+        const grid = document.createElement('div');
+        grid.className = 'atlas-frame';
+
+        mergedRows.forEach((row) => {
+          const uniqueTimes = [...new Set(row.times)];
+          const rowAnchorId = `atlas-moment-${String(row.offset).replace('-', 'min')}`;
+
+          const link = document.createElement('a');
+          link.href = `#${rowAnchorId}`;
+          link.textContent = uniqueTimes.join(' en ');
+          linksNode.appendChild(link);
+
+          const rowNode = document.createElement('div');
+          rowNode.className = 'atlas-row';
+          rowNode.id = rowAnchorId;
+
+          const imageNode = document.createElement('img');
+          imageNode.className = 'atlas-image';
+          imageNode.src = row.image_url;
+          imageNode.alt = row.relative_label;
+          imageNode.loading = 'lazy';
+          rowNode.appendChild(imageNode);
+
+          const timeNode = document.createElement('span');
+          timeNode.className = 'atlas-time';
+          timeNode.textContent = uniqueTimes.join(' en ');
+          rowNode.appendChild(timeNode);
+
+          grid.appendChild(rowNode);
+        });
+
+        card.appendChild(grid);
+        atlasTimes.appendChild(card);
       }
 
       async function loadDay(selectedDate, selectedLocation) {
@@ -404,7 +456,9 @@
           renderList(highList, payload.high_waters || [], 'hoogwater');
           renderList(lowList, payload.low_waters || [], 'laagwater');
           renderChart(payload.points || [], selectedDate);
-          renderStroomatlas(payload.stroomatlas_windows || []);
+          if (includeStroomatlas) {
+            renderStroomatlas(payload.stroomatlas_windows || []);
+          }
 
           const url = new URL(window.location.href);
           url.searchParams.set('date', selectedDate);
@@ -416,7 +470,9 @@
           renderList(highList, [], 'hoogwater');
           renderList(lowList, [], 'laagwater');
           renderChart([], selectedDate);
-          renderStroomatlas([]);
+          if (includeStroomatlas) {
+            renderStroomatlas([]);
+          }
         } finally {
           setTideLoading(false);
         }
